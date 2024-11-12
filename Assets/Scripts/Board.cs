@@ -1,8 +1,10 @@
 using DG.Tweening;
+using System;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using Random = UnityEngine.Random;
 
 public class Board : MonoBehaviour
 {
@@ -18,7 +20,8 @@ public class Board : MonoBehaviour
 
     private readonly List<Tile> _selection = new List<Tile>();
 
-    private const float _swapDuration = 0.25f;
+    private const float _moveDuration = 0.25f;
+    private const float _scaleDuration = 0.2f;
 
     // Awake happens before Start
     private void Awake() => Instance = this;
@@ -47,6 +50,16 @@ public class Board : MonoBehaviour
 
     }
 
+    private void Update()
+    {
+        if (!Input.GetKey(KeyCode.A)) return;
+
+        foreach (var t in Tiles[0, 0].GetConnectedTiles())
+        {
+            t.icon.transform.DOScale(1.25f, 0.25f).Play();
+        }
+    }
+
     public async void Select(Tile tile)
     {
         if (!_selection.Contains(tile)) _selection.Add(tile);
@@ -55,6 +68,16 @@ public class Board : MonoBehaviour
         Debug.Log(message: $"Selected tiles at ({_selection[0].x}, {_selection[0].y}) and ({_selection[1].x}, {_selection[1].y})");
 
         await Swap(_selection[0], _selection[1]);
+
+        if (CanPop())
+        {
+            Pop();
+        }
+        else
+        {
+            await Swap(_selection[0], _selection[1]);
+
+        }
 
         _selection.Clear();
     }
@@ -70,8 +93,8 @@ public class Board : MonoBehaviour
         // Start swap animation
         var sequence = DOTween.Sequence();
 
-        sequence.Join(icon1Transform.DOMove(icon2Transform.position, _swapDuration).SetEase(Ease.OutBack))
-                .Join(icon2Transform.DOMove(icon1Transform.position, _swapDuration).SetEase(Ease.OutBack));
+        sequence.Join(icon1Transform.DOMove(icon2Transform.position, _moveDuration).SetEase(Ease.OutBack))
+                .Join(icon2Transform.DOMove(icon1Transform.position, _moveDuration).SetEase(Ease.OutBack));
 
         await sequence.Play()
                       .AsyncWaitForCompletion();
@@ -86,5 +109,47 @@ public class Board : MonoBehaviour
         var tempTileItem = tile1.item;
         tile1.item = tile2.item;
         tile2.item = tempTileItem;
+    }
+
+    private bool CanPop()
+    {
+        for (var y = 0; y < Height; y++)
+            for (var x = 0; x < Width; x++)
+                if (Tiles[x, y].GetConnectedTiles().Skip(1).Count() >= 2)
+                    return true;
+
+        return false;
+    }
+
+    private async void Pop()
+    {
+        for (var y = 0; y < Height; y++)
+            for (var x = 0; x < Width; x++)
+            {
+                var tile = Tiles[x, y];
+                var connectedTiles = tile.GetConnectedTiles();
+
+                if (connectedTiles.Skip(1).Count() < 2) continue;
+
+                // to animate the shrinking, scale down of the connected tiles
+                var deflateSequence = DOTween.Sequence();
+                foreach (var t in connectedTiles)
+                    deflateSequence.Join(t.icon.transform.DOScale(Vector3.zero, _scaleDuration));
+
+                await deflateSequence.Play()
+                    .AsyncWaitForCompletion();
+
+                // to animate the inflation, scaling to original size of the connected tiles
+                var inflateSequence = DOTween.Sequence();
+                foreach (var t in connectedTiles)
+                {
+                    t.item = ItemDatabase.Items[Random.Range(0, ItemDatabase.Items.Length)];
+
+                    inflateSequence.Join(t.icon.transform.DOScale(Vector3.one, _scaleDuration));
+                }
+
+                await inflateSequence.Play()
+                    .AsyncWaitForCompletion();
+            }
     }
 }
